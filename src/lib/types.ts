@@ -49,6 +49,14 @@ export interface MediaItem {
   storagePath: string;
   thumbPath?: string | null;
   posterPath?: string | null;
+  /**
+   * Short-lived signed display URLs resolved at read time (never persisted).
+   * Populated by the data layer when Supabase is connected; in demo mode the
+   * *Path fields already hold absolute placeholder URLs.
+   */
+  url?: string | null;
+  thumbUrl?: string | null;
+  posterUrl?: string | null;
   /** Placeholder for skeleton/blur — dominant color or tiny data URL. */
   placeholder?: string | null;
   alt?: string | null;

@@ -10,9 +10,8 @@ import type { MediaItem, Post } from "@/lib/types";
  *  - Hover lift only on hover-capable (non-touch) devices.
  *  - The gallery uses static covers — WebGL effects run only in the editor /
  *    detail view, never on every card (guidelines §2, §14).
- *  - `src` is the media's current display URL. For demo content this is an
- *    absolute placeholder URL; in production, resolve a short-lived signed
- *    URL server-side and pass it here.
+ *  - `src` prefers the resolved signed thumbnail URL (attached by the data
+ *    layer in production); demo content falls back to the absolute *Path URLs.
  */
 export function MediaFrame({
   post,
@@ -26,7 +25,12 @@ export function MediaFrame({
     cover?.width && cover?.height
       ? `${cover.width} / ${cover.height}`
       : "4 / 3";
-  const src = cover?.thumbPath ?? cover?.storagePath ?? "";
+  const src =
+    cover?.thumbUrl ??
+    cover?.url ??
+    cover?.thumbPath ??
+    cover?.storagePath ??
+    "";
 
   return (
     <Link

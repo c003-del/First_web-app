@@ -1,9 +1,11 @@
 import "server-only";
 import { cache } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Category, CategoryScope, Post } from "@/lib/types";
 import { createClient } from "@/lib/supabase/server";
 import { DEMO_CATEGORIES, DEMO_POSTS, DEMO_SITE } from "@/lib/demo-data";
 import { SITE_DEFAULTS } from "@/lib/config";
+import { signPaths } from "@/lib/storage";
 
 /**
  * Data-access layer. Reads from Supabase (subject to RLS) when configured,
@@ -70,7 +72,7 @@ export const getRecentPosts = cache(async (limit = 8): Promise<Post[]> => {
     .order("created_at", { ascending: false })
     .limit(limit);
 
-  return (data ?? []).map(rowToPost);
+  return withSignedUrls(supabase, (data ?? []).map(rowToPost));
 });
 
 /**
@@ -95,7 +97,7 @@ export const getPostsByScope = cache(
       .order("created_at", { ascending: false })
       .limit(limit);
 
-    return (data ?? []).map(rowToPost);
+    return withSignedUrls(supabase, (data ?? []).map(rowToPost));
   },
 );
 
@@ -131,7 +133,10 @@ export const getPostsByCategory = cache(
       .eq("category_id", cat.id)
       .order("created_at", { ascending: false });
 
-    return { category: rowToCategory(cat), posts: (posts ?? []).map(rowToPost) };
+    return {
+      category: rowToCategory(cat),
+      posts: await withSignedUrls(supabase, (posts ?? []).map(rowToPost)),
+    };
   },
 );
 
@@ -145,7 +150,9 @@ export const getPostById = cache(async (id: string): Promise<Post | null> => {
     .eq("id", id)
     .maybeSingle();
 
-  return data ? rowToPost(data) : null;
+  if (!data) return null;
+  const [post] = await withSignedUrls(supabase, [rowToPost(data)]);
+  return post ?? null;
 });
 
 /* ----------------------------- row mappers ------------------------------ */
@@ -206,3 +213,32 @@ function rowToPost(r: any): Post {
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
+/**
+ * Resolve short-lived signed display URLs for every media path in a batch and
+ * attach them (url/thumbUrl/posterUrl). Mutates and returns the same posts.
+ */
+async function withSignedUrls(
+  supabase: SupabaseClient,
+  posts: Post[],
+): Promise<Post[]> {
+  const paths: string[] = [];
+  for (const p of posts) {
+    for (const m of p.media) {
+      if (m.storagePath) paths.push(m.storagePath);
+      if (m.thumbPath) paths.push(m.thumbPath);
+      if (m.posterPath) paths.push(m.posterPath);
+    }
+  }
+  const map = await signPaths(supabase, paths);
+  if (map.size === 0) return posts;
+
+  for (const p of posts) {
+    for (const m of p.media) {
+      if (m.storagePath) m.url = map.get(m.storagePath) ?? m.url;
+      if (m.thumbPath) m.thumbUrl = map.get(m.thumbPath) ?? m.thumbUrl;
+      if (m.posterPath) m.posterUrl = map.get(m.posterPath) ?? m.posterUrl;
+    }
+  }
+  return posts;
+}

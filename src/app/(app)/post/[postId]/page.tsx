@@ -47,10 +47,10 @@ export default async function PostPage({
 }
 
 function MediaBlock({ item }: { item: MediaItem }) {
-  // `storagePath` is a bucket path, not a URL. Demo content uses absolute
-  // placeholder URLs so this renders directly. In production, resolve a
-  // short-lived signed URL server-side before render (Phase 5 upload work).
-  const src = item.storagePath;
+  // Prefer the resolved signed URL (attached by the data layer in production);
+  // demo content falls back to the absolute placeholder *Path.
+  const src = item.url ?? item.storagePath;
+  const poster = item.posterUrl ?? item.posterPath ?? undefined;
   const ratio =
     item.width && item.height ? `${item.width} / ${item.height}` : "4 / 3";
 
@@ -73,7 +73,7 @@ function MediaBlock({ item }: { item: MediaItem }) {
             className="h-full w-full object-contain"
             controls
             preload="metadata"
-            poster={item.posterPath ?? undefined}
+            poster={poster}
           >
             <source src={src} type={item.mime} />
           </video>
