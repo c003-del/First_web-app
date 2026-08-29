@@ -146,20 +146,29 @@ export const getPostsByCategory = cache(
   },
 );
 
-/** All editable text blocks, keyed by their stable string id. */
-export const getTextBlocks = cache(async (): Promise<Map<string, string>> => {
-  const supabase = await createClient();
-  const map = new Map<string, string>();
-  if (!supabase) return map;
+/**
+ * Editable text blocks, keyed by their stable string id.
+ * Pass an explicit list of keys to fetch only what the page needs; omit for
+ * the whole table (admin/texts uses this).
+ */
+export const getTextBlocks = cache(
+  async (keys?: readonly string[]): Promise<Map<string, string>> => {
+    const supabase = await createClient();
+    const map = new Map<string, string>();
+    if (!supabase) return map;
 
-  const { data } = await supabase.from("text_blocks").select("key, value");
-  for (const row of data ?? []) {
-    if (typeof row.key === "string" && typeof row.value === "string") {
-      map.set(row.key, row.value);
+    let q = supabase.from("text_blocks").select("key, value");
+    if (keys && keys.length > 0) q = q.in("key", keys as string[]);
+
+    const { data } = await q;
+    for (const row of data ?? []) {
+      if (typeof row.key === "string" && typeof row.value === "string") {
+        map.set(row.key, row.value);
+      }
     }
-  }
-  return map;
-});
+    return map;
+  },
+);
 
 export const getPostById = cache(async (id: string): Promise<Post | null> => {
   const supabase = await createClient();

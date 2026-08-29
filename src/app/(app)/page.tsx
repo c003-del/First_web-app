@@ -8,7 +8,7 @@ export default async function HomePage() {
   const [site, posts, texts] = await Promise.all([
     getSiteSettings(),
     getRecentPosts(8),
-    getTextBlocks(),
+    getTextBlocks(["home.hero.headline", "home.hero.description"]),
   ]);
 
   const headline = texts.get("home.hero.headline")?.trim() || site.siteName;

@@ -1,22 +1,23 @@
 import { describe, it, expect } from "vitest";
-
-// The key validation regex is defined inline in saveTextBlock; mirror it here
-// so any change is caught by tests.
-const KEY_RE = /^[a-z0-9._-]{1,80}$/;
+import { TEXT_BLOCK_KEY_RE, MAX_TEXT_BYTES } from "@/lib/text-blocks";
 
 describe("text_block key regex", () => {
   it("accepts dotted lowercase keys", () => {
-    expect(KEY_RE.test("home.hero.headline")).toBe(true);
-    expect(KEY_RE.test("footer.copyright")).toBe(true);
-    expect(KEY_RE.test("a")).toBe(true);
+    expect(TEXT_BLOCK_KEY_RE.test("home.hero.headline")).toBe(true);
+    expect(TEXT_BLOCK_KEY_RE.test("footer.copyright")).toBe(true);
+    expect(TEXT_BLOCK_KEY_RE.test("a")).toBe(true);
   });
   it("rejects spaces, uppercase, and unicode", () => {
-    expect(KEY_RE.test("Home.Hero.Headline")).toBe(false);
-    expect(KEY_RE.test("home hero")).toBe(false);
-    expect(KEY_RE.test("홈")).toBe(false);
+    expect(TEXT_BLOCK_KEY_RE.test("Home.Hero.Headline")).toBe(false);
+    expect(TEXT_BLOCK_KEY_RE.test("home hero")).toBe(false);
+    expect(TEXT_BLOCK_KEY_RE.test("홈")).toBe(false);
   });
   it("rejects empty and overlong keys", () => {
-    expect(KEY_RE.test("")).toBe(false);
-    expect(KEY_RE.test("a".repeat(81))).toBe(false);
+    expect(TEXT_BLOCK_KEY_RE.test("")).toBe(false);
+    expect(TEXT_BLOCK_KEY_RE.test("a".repeat(81))).toBe(false);
+  });
+  it("byte cap is a positive integer", () => {
+    expect(MAX_TEXT_BYTES).toBeGreaterThan(0);
+    expect(Number.isInteger(MAX_TEXT_BYTES)).toBe(true);
   });
 });

@@ -45,25 +45,34 @@ function PostRow({
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
-  const [title, setTitle] = useState(post.title);
-  const [caption, setCaption] = useState(post.caption ?? "");
-  const [categoryId, setCategoryId] = useState(post.categoryId);
-  const [visibility, setVisibility] = useState<PostVisibility>(
-    post.visibility ?? "family",
-  );
+  const initialTitle = post.title;
+  const initialCaption = post.caption ?? "";
+  const initialCategoryId = post.categoryId ?? "";
+  const initialVisibility: PostVisibility = post.visibility ?? "family";
+  const [title, setTitle] = useState(initialTitle);
+  const [caption, setCaption] = useState(initialCaption);
+  const [categoryId, setCategoryId] = useState(initialCategoryId);
+  const [visibility, setVisibility] =
+    useState<PostVisibility>(initialVisibility);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   function save() {
     setMessage(null);
+    // Send only the fields the admin actually changed. This avoids re-writing
+    // unchanged values (and, importantly, avoids clobbering a legitimately
+    // null category with the first option the <select> is visually showing).
+    const patch: Parameters<typeof updatePost>[0] = { id: post.id };
+    if (title !== initialTitle) patch.title = title;
+    if (caption !== initialCaption) patch.caption = caption;
+    if (categoryId !== initialCategoryId) patch.categoryId = categoryId;
+    if (visibility !== initialVisibility) patch.visibility = visibility;
+    if (Object.keys(patch).length === 1) {
+      setEditing(false);
+      return;
+    }
     start(async () => {
-      const res = await updatePost({
-        id: post.id,
-        title,
-        caption,
-        categoryId,
-        visibility,
-      });
+      const res = await updatePost(patch);
       if (res.ok) {
         setEditing(false);
         router.refresh();
@@ -142,10 +151,14 @@ function PostRow({
         <label className="block">
           <span className="text-[12px] text-ink-secondary">카테고리</span>
           <select
-            value={categoryId ?? ""}
+            value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
             className="mt-1 w-full rounded-md border border-strong bg-surface-solid px-3 py-2 text-[14px]"
           >
+            {/* Explicit empty option so a null category renders as such and a
+                bare Save can't silently reassign the post to the first
+                alphabetical category. */}
+            <option value="">— 카테고리 없음 —</option>
             {categories.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.scopeLabel} · {c.name}

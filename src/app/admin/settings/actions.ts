@@ -34,7 +34,9 @@ export async function saveSiteSettings(input: {
     patch.owner_slug = s;
   }
   if (input.copyright !== undefined) {
-    patch.copyright = input.copyright.trim().slice(0, 200);
+    const c = input.copyright.trim();
+    if (!c) return { ok: false, error: "저작권 문구를 비울 수 없습니다." };
+    patch.copyright = c.slice(0, 200);
   }
   if (Object.keys(patch).length === 0) return { ok: true };
 

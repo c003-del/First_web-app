@@ -25,12 +25,18 @@ export async function updatePost(input: {
   const patch: Record<string, unknown> = {};
   if (input.title !== undefined) {
     const t = input.title.trim().slice(0, 200);
-    patch.title = t || "제목 없음";
+    if (!t) return { ok: false, error: "제목을 비울 수 없습니다." };
+    patch.title = t;
   }
   if (input.caption !== undefined) {
     patch.caption = input.caption?.trim().slice(0, 2000) || null;
   }
-  if (input.categoryId !== undefined) patch.category_id = input.categoryId || null;
+  if (input.categoryId !== undefined) {
+    if (!input.categoryId) {
+      return { ok: false, error: "카테고리를 선택해 주세요." };
+    }
+    patch.category_id = input.categoryId;
+  }
   if (input.visibility !== undefined) {
     if (!validVisibility(input.visibility)) {
       return { ok: false, error: "잘못된 공개 대상입니다." };
@@ -66,14 +72,23 @@ export async function softDeletePost(
   if (!supabase) return { ok: false, error: "Supabase가 연결되지 않았습니다." };
   if (!id) return { ok: false, error: "id가 필요합니다." };
 
-  const { data, error } = await supabase
+  // Verify existence FIRST — the read policy hides posts with deleted_at set,
+  // so after a successful UPDATE we can't see the row we just soft-deleted.
+  const { data: existing, error: readErr } = await supabase
+    .from("posts")
+    .select("id")
+    .eq("id", id)
+    .maybeSingle();
+  if (readErr) return { ok: false, error: "권한을 확인할 수 없습니다." };
+  if (!existing) {
+    return { ok: false, error: "이미 삭제되었거나 찾을 수 없습니다." };
+  }
+
+  const { error } = await supabase
     .from("posts")
     .update({ deleted_at: new Date().toISOString() })
-    .eq("id", id)
-    .select("id")
-    .maybeSingle();
+    .eq("id", id);
   if (error) return { ok: false, error: "삭제 권한이 없습니다." };
-  if (!data) return { ok: false, error: "이미 삭제되었거나 찾을 수 없습니다." };
 
   revalidatePath("/", "layout");
   return { ok: true };

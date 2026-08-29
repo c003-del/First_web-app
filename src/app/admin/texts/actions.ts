@@ -2,8 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-
-const MAX_TEXT_BYTES = 5_000;
+import { TEXT_BLOCK_KEY_RE, MAX_TEXT_BYTES } from "@/lib/text-blocks";
 
 /**
  * Upsert a plain-text block by key. Values are stored as-is (no HTML) and
@@ -17,7 +16,7 @@ export async function saveTextBlock(
   if (!supabase) return { ok: false, error: "Supabase가 연결되지 않았습니다." };
 
   const trimmedKey = key.trim();
-  if (!/^[a-z0-9._-]{1,80}$/.test(trimmedKey)) {
+  if (!TEXT_BLOCK_KEY_RE.test(trimmedKey)) {
     return { ok: false, error: "잘못된 키입니다." };
   }
   const cleanValue = value ?? "";
@@ -39,6 +38,9 @@ export async function saveTextBlock(
 
   if (error) return { ok: false, error: "저장 권한이 없습니다." };
 
-  revalidatePath("/", "layout");
+  // Narrow revalidation — the home hero + admin/texts are the only consumers
+  // today. When a footer text block is added, revalidate the layout too.
+  revalidatePath("/");
+  revalidatePath("/admin/texts");
   return { ok: true };
 }
