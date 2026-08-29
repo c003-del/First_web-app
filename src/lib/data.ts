@@ -160,10 +160,10 @@ export interface PostFilters {
  * Filtered listing used by the search/filter UI. Applies criteria at query
  * time (indexed columns) then relies on withSignedUrls to resolve display
  * URLs. Kind ("image"/"video") is post-filtered so we only surface posts that
- * carry media of the requested type.
+ * carry media of the requested type. Not memoized by React `cache()` because
+ * callers pass fresh object literals — the identity key would never hit.
  */
-export const searchPosts = cache(
-  async (filters: PostFilters = {}): Promise<Post[]> => {
+export async function searchPosts(filters: PostFilters = {}): Promise<Post[]> {
     const supabase = await createClient();
     if (!supabase) {
       const catIds = new Set(
@@ -186,9 +186,13 @@ export const searchPosts = cache(
     if (filters.scope) q = q.eq("category.scope", filters.scope);
     if (filters.categoryId) q = q.eq("category_id", filters.categoryId);
     if (filters.query) {
-      const term = escapeIlike(filters.query.trim()).slice(0, 80);
-      if (term) {
-        q = q.or(`title.ilike.%${term}%,caption.ilike.%${term}%`);
+      // Slice raw input FIRST, then escape SQL LIKE metachars, then wrap in
+      // PostgREST double-quotes so parens/commas/dots inside the term can't
+      // close the .or() group or inject sibling filters.
+      const raw = filters.query.trim().slice(0, 80);
+      if (raw) {
+        const pat = pgrstQuote(`%${escapeIlike(raw)}%`);
+        q = q.or(`title.ilike.${pat},caption.ilike.${pat}`);
       }
     }
     if (typeof filters.year === "number" && Number.isFinite(filters.year)) {
@@ -218,8 +222,7 @@ export const searchPosts = cache(
       );
     }
     return withSignedUrls(supabase, posts, { coverOnly: true });
-  },
-);
+}
 
 function applyClientFilters(posts: Post[], f: PostFilters): Post[] {
   let out = posts;
@@ -248,9 +251,22 @@ function applyClientFilters(posts: Post[], f: PostFilters): Post[] {
   return out;
 }
 
-/** Escape ILIKE special chars so a user's query can't build wildcard tricks. */
+/**
+ * Escape the SQL LIKE metachars so a user's query can't inject wildcards.
+ * The `,`, `(`, `)`, and `"` characters are NOT SQL wildcards — they are
+ * PostgREST filter delimiters and are handled separately by `pgrstQuote`.
+ */
 function escapeIlike(s: string): string {
-  return s.replace(/[\\%_,]/g, (m) => "\\" + m);
+  return s.replace(/[\\%_]/g, (m) => "\\" + m);
+}
+
+/**
+ * Wrap a value for a PostgREST filter (e.g. inside `.or(title.ilike.<here>)`)
+ * so `(`, `)`, `,`, `.`, and `:` inside the value do not terminate the
+ * expression. Backslash and double-quote inside the value are escaped.
+ */
+function pgrstQuote(s: string): string {
+  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 /**
@@ -369,14 +385,12 @@ async function withSignedUrls(
     // out signed originals that never get displayed.
     const media = coverOnly ? p.media.slice(0, 1) : p.media;
     for (const m of media) {
-      if (coverOnly) {
-        if (m.thumbPath) paths.push(m.thumbPath);
-        else if (m.storagePath) paths.push(m.storagePath);
-      } else {
-        if (m.storagePath) paths.push(m.storagePath);
-        if (m.thumbPath) paths.push(m.thumbPath);
-        if (m.posterPath) paths.push(m.posterPath);
-      }
+      // In coverOnly mode we still sign storagePath + posterPath alongside
+      // the thumbnail so the click-to-open lightbox has a working full-res URL
+      // (and a poster for videos) without a second round-trip.
+      if (m.storagePath) paths.push(m.storagePath);
+      if (m.thumbPath) paths.push(m.thumbPath);
+      if (m.posterPath) paths.push(m.posterPath);
     }
   }
   const map = await signPaths(supabase, paths);

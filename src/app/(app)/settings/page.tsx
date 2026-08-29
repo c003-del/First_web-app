@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/config";
 import { AccountForm } from "./SettingsForm";
@@ -17,14 +18,18 @@ export default async function SettingsPage() {
     );
   }
 
-  const supabase = await createClient();
+  const supabase = (await createClient())!;
   const {
     data: { user },
-  } = (await supabase!.auth.getUser()) ?? { data: { user: null } };
+  } = await supabase.auth.getUser();
+  // Middleware normally redirects unauthenticated visitors, but a session can
+  // be invalidated between refresh and render — handle explicitly instead of
+  // crashing on `user!`.
+  if (!user) redirect("/login");
 
   const [{ data: profile }, { data: factors }] = await Promise.all([
-    supabase!.from("profiles").select("display_name, role").eq("id", user!.id).maybeSingle(),
-    supabase!.auth.mfa.listFactors(),
+    supabase.from("profiles").select("display_name, role").eq("id", user.id).maybeSingle(),
+    supabase.auth.mfa.listFactors(),
   ]);
 
   const mfaEnrolled = Boolean(
@@ -40,7 +45,7 @@ export default async function SettingsPage() {
       <div className="mt-6">
         <AccountForm
           initialName={profile?.display_name ?? ""}
-          email={user?.email ?? ""}
+          email={user.email ?? ""}
           role={profile?.role ?? "viewer"}
           mfaEnrolled={mfaEnrolled}
         />

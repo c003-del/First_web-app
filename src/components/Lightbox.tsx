@@ -99,9 +99,17 @@ export function Lightbox({
   const nextPost = posts[(index + 1) % posts.length];
   const nextCover = nextPost?.media[0];
 
-  const src = cover?.url ?? cover?.storagePath ?? "";
-  const poster = cover?.posterUrl ?? cover?.posterPath ?? undefined;
-  const thumb = cover?.thumbUrl ?? cover?.thumbPath ?? undefined;
+  // In production the storage bucket is private — a raw storagePath would 404.
+  // The data layer resolves short-lived signed URLs; if a URL is missing we
+  // must NOT fall back to the raw path. Prefer signed `url`, then let the
+  // browser show a broken state.  Demo mode already puts absolute picsum URLs
+  // in *Path so cover.url is undefined but storagePath is safe there — a
+  // simple heuristic: only accept storagePath if it starts with http.
+  const httpish = (p?: string | null) =>
+    p && /^https?:\/\//i.test(p) ? p : undefined;
+  const src = cover?.url ?? httpish(cover?.storagePath);
+  const poster = cover?.posterUrl ?? httpish(cover?.posterPath);
+  const thumb = cover?.thumbUrl ?? httpish(cover?.thumbPath);
   const webNative = cover?.support === "web-native";
 
   return (
@@ -115,17 +123,6 @@ export function Lightbox({
       onClick={(e) => {
         // Click on the backdrop (not the media) closes.
         if (e.target === e.currentTarget) onClose();
-      }}
-      onTouchStart={(e) => {
-        touchStartX.current = e.touches[0]?.clientX ?? null;
-      }}
-      onTouchEnd={(e) => {
-        const start = touchStartX.current;
-        touchStartX.current = null;
-        if (start === null) return;
-        const end = e.changedTouches[0]?.clientX ?? start;
-        const dx = end - start;
-        if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1);
       }}
     >
       <div className="glass glass-strong relative flex max-h-[calc(100dvh-2rem)] w-full max-w-5xl flex-col overflow-hidden">
@@ -146,23 +143,42 @@ export function Lightbox({
           </button>
         </header>
 
-        <div className="relative flex flex-1 items-center justify-center bg-black">
+        <div
+          className="relative flex flex-1 items-center justify-center bg-black"
+          onTouchStart={(e) => {
+            // Ignore touches on the video's own controls so scrubbing doesn't
+            // trigger a slide change.
+            const target = e.target as HTMLElement | null;
+            if (target?.tagName === "VIDEO") {
+              touchStartX.current = null;
+              return;
+            }
+            touchStartX.current = e.touches[0]?.clientX ?? null;
+          }}
+          onTouchEnd={(e) => {
+            const start = touchStartX.current;
+            touchStartX.current = null;
+            if (start === null) return;
+            const end = e.changedTouches[0]?.clientX ?? start;
+            const dx = end - start;
+            if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1);
+          }}
+        >
           {cover?.kind === "video" && webNative ? (
             <video
               key={post.id}
               className="max-h-[70dvh] w-auto max-w-full"
               controls
-              autoPlay
               preload="metadata"
               poster={poster}
             >
-              <source src={src} type={cover.mime} />
+              {src ? <source src={src} type={cover.mime} /> : null}
             </video>
           ) : (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
               key={post.id}
-              src={webNative ? src : (thumb ?? src)}
+              src={webNative ? (src ?? "") : (thumb ?? src ?? "")}
               alt={cover?.alt ?? post.title}
               className="max-h-[70dvh] w-auto max-w-full object-contain"
             />
@@ -198,21 +214,17 @@ export function Lightbox({
       </div>
 
       {/* Prefetch the next cover so navigation feels instant. */}
-      {nextCover ? (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img
-          alt=""
-          aria-hidden
-          src={
-            nextCover.thumbUrl ??
-            nextCover.url ??
-            nextCover.thumbPath ??
-            nextCover.storagePath ??
-            ""
-          }
-          className="hidden"
-        />
-      ) : null}
+      {(() => {
+        const nextSrc =
+          nextCover?.thumbUrl ??
+          nextCover?.url ??
+          httpish(nextCover?.thumbPath) ??
+          httpish(nextCover?.storagePath);
+        return nextSrc ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img alt="" aria-hidden src={nextSrc} className="hidden" />
+        ) : null;
+      })()}
     </div>
   );
 }

@@ -62,11 +62,15 @@ function GalleryCard({
     cover?.width && cover?.height
       ? `${cover.width} / ${cover.height}`
       : "4 / 3";
+  // Prefer a resolved signed URL; treat *Path as a URL only if it already
+  // looks like one (demo mode uses absolute picsum URLs there).
+  const httpish = (p?: string | null) =>
+    p && /^https?:\/\//i.test(p) ? p : undefined;
   const src =
     cover?.thumbUrl ??
     cover?.url ??
-    cover?.thumbPath ??
-    cover?.storagePath ??
+    httpish(cover?.thumbPath) ??
+    httpish(cover?.storagePath) ??
     "";
 
   return (
@@ -75,8 +79,10 @@ function GalleryCard({
       aria-label={post.title}
       className="group block focus-visible:outline-none"
       onClick={(e) => {
-        // Modifier-click / middle-click keeps default (open in new tab).
-        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+        // Modifier-click keeps default (open in new tab). Middle-click fires
+        // `auxclick`/`mousedown`, not `click`, so it already bypasses this
+        // handler entirely.
+        if (e.metaKey || e.ctrlKey || e.shiftKey) return;
         e.preventDefault();
         onOpen();
       }}

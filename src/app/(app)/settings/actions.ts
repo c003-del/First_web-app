@@ -18,12 +18,16 @@ export async function updateDisplayName(
   const clean = displayName.trim().slice(0, 40);
   if (!clean) return { ok: false, error: "이름을 비울 수 없습니다." };
 
-  const { error } = await supabase
+  // Upsert so a not-yet-provisioned profile row (auth trigger race) is
+  // created rather than silently updating zero rows.
+  const { data, error } = await supabase
     .from("profiles")
-    .update({ display_name: clean })
-    .eq("id", user.id);
+    .upsert({ id: user.id, display_name: clean }, { onConflict: "id" })
+    .select("id")
+    .maybeSingle();
 
   if (error) return { ok: false, error: "저장 실패" };
+  if (!data) return { ok: false, error: "저장 결과를 확인할 수 없습니다." };
   revalidatePath("/settings");
   return { ok: true };
 }
