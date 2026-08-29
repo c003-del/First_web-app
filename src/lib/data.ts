@@ -146,6 +146,21 @@ export const getPostsByCategory = cache(
   },
 );
 
+/** All editable text blocks, keyed by their stable string id. */
+export const getTextBlocks = cache(async (): Promise<Map<string, string>> => {
+  const supabase = await createClient();
+  const map = new Map<string, string>();
+  if (!supabase) return map;
+
+  const { data } = await supabase.from("text_blocks").select("key, value");
+  for (const row of data ?? []) {
+    if (typeof row.key === "string" && typeof row.value === "string") {
+      map.set(row.key, row.value);
+    }
+  }
+  return map;
+});
+
 export const getPostById = cache(async (id: string): Promise<Post | null> => {
   const supabase = await createClient();
   if (!supabase) return DEMO_POSTS.find((p) => p.id === id) ?? null;
@@ -164,7 +179,7 @@ export const getPostById = cache(async (id: string): Promise<Post | null> => {
 /* ----------------------------- row mappers ------------------------------ */
 
 const POST_SELECT = `
-  id, category_id, title, caption, taken_at, created_at,
+  id, category_id, title, caption, taken_at, visibility, created_at,
   media:media (
     id, post_id, kind, support, status, ext, mime, width, height,
     duration_seconds, storage_path, thumb_path, poster_path, placeholder,
@@ -214,6 +229,7 @@ function rowToPost(r: any): Post {
     title: r.title,
     caption: r.caption,
     takenAt: r.taken_at,
+    visibility: r.visibility,
     createdAt: r.created_at,
     media,
   };
