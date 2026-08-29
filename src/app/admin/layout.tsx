@@ -51,6 +51,7 @@ export default async function AdminLayout({
               <AdminNavLink href="/admin/posts">게시물</AdminNavLink>
               <AdminNavLink href="/admin/categories">카테고리</AdminNavLink>
               <AdminNavLink href="/admin/media">미디어</AdminNavLink>
+              <AdminNavLink href="/admin/effects">효과</AdminNavLink>
               <AdminNavLink href="/admin/texts">문구</AdminNavLink>
               <AdminNavLink href="/admin/users">사용자</AdminNavLink>
               <AdminNavLink href="/admin/settings">사이트 설정</AdminNavLink>
