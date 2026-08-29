@@ -36,6 +36,13 @@ const LABELS: Record<keyof typeof EFFECT_RANGES, string> = {
 
 type EffectKey = keyof typeof EFFECT_RANGES;
 
+function effectsEqual(a: MediaEffects, b: MediaEffects): boolean {
+  for (const k of Object.keys(EFFECT_RANGES) as EffectKey[]) {
+    if (a[k] !== b[k]) return false;
+  }
+  return a.presetId === b.presetId;
+}
+
 export function EffectsEditor({
   posts,
 }: {
@@ -45,21 +52,29 @@ export function EffectsEditor({
   const imgRef = useRef<HTMLImageElement>(null);
   const rendererRef = useRef<EffectRenderer | null>(null);
   const rafRef = useRef<number | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
 
   // Detect on the client after mount (document is unavailable during SSR).
   const [webglOk, setWebglOk] = useState(false);
   useEffect(() => setWebglOk(isWebglAvailable()), []);
+
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
+  const [splitView, setSplitView] = useState(false);
 
   const [effects, setEffects] = useState<MediaEffects>(DEFAULT_EFFECTS);
   const [history, setHistory] = useState<MediaEffects[]>([DEFAULT_EFFECTS]);
   const [hi, setHi] = useState(0);
+  const [savedBaseline, setSavedBaseline] =
+    useState<MediaEffects>(DEFAULT_EFFECTS);
 
   const [postId, setPostId] = useState(posts[0]?.id ?? "");
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const dirty = !effectsEqual(effects, savedBaseline);
 
   // Default sample image (same-origin data URL → no CORS taint for WebGL).
   useEffect(() => {
@@ -89,7 +104,8 @@ export function EffectsEditor({
     const canvas = canvasRef.current;
     const img = imgRef.current;
     if (!canvas || !img || !ready) return;
-    if (!rendererRef.current) {
+    if (!rendererRef.current || rendererRef.current.isLost()) {
+      rendererRef.current?.dispose();
       rendererRef.current = createEffectRenderer(canvas);
       if (!rendererRef.current) return;
     }
@@ -105,9 +121,40 @@ export function EffectsEditor({
     };
   }, [draw]);
 
+  // Context-restore: recreate the renderer on the next tick.
   useEffect(() => {
-    return () => rendererRef.current?.dispose();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onRestored = () => {
+      rendererRef.current?.dispose();
+      rendererRef.current = null;
+      requestAnimationFrame(draw);
+    };
+    canvas.addEventListener("webglcontextrestored", onRestored, false);
+    return () => canvas.removeEventListener("webglcontextrestored", onRestored);
+  }, [draw]);
+
+  // Full cleanup on unmount: renderer + any blob: URL we created.
+  useEffect(() => {
+    return () => {
+      rendererRef.current?.dispose();
+      if (previewUrlRef.current?.startsWith("blob:")) {
+        URL.revokeObjectURL(previewUrlRef.current);
+      }
+    };
   }, []);
+
+  // Unsaved-changes navigation guard (guideline §14).
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      // Modern browsers ignore custom text but require returnValue to be set.
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
 
   function onImgLoad() {
     const img = imgRef.current;
@@ -121,36 +168,58 @@ export function EffectsEditor({
       canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
       canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
     }
-    // A new image needs a fresh texture upload; recreate lazily.
+    setLoadError(null);
     setReady(true);
+  }
+
+  function onImgError() {
+    setReady(false);
+    setLoadError(
+      "이미지를 열 수 없습니다. 다른 파일을 선택하거나 브라우저가 지원하는 형식(JPG/PNG/WebP)을 사용해 주세요.",
+    );
   }
 
   function pickFile(file: File | undefined) {
     if (!file) return;
     setReady(false);
-    setPreviewUrl((old) => {
-      if (old?.startsWith("blob:")) URL.revokeObjectURL(old);
-      return URL.createObjectURL(file);
-    });
+    setLoadError(null);
+    // Revoke the previous blob URL synchronously so it can't leak.
+    if (previewUrlRef.current?.startsWith("blob:")) {
+      URL.revokeObjectURL(previewUrlRef.current);
+    }
+    const next = URL.createObjectURL(file);
+    previewUrlRef.current = next;
+    setPreviewUrl(next);
   }
 
+  // record() must derive both next-history and next-index from the previous
+  // state, not from stale closure values. Two records in the same batch would
+  // otherwise desync hi and history.length.
   function record(next: MediaEffects) {
     setEffects(next);
-    setHistory((h) => [...h.slice(0, hi + 1), next]);
-    setHi((i) => i + 1);
+    setHistory((prev) => {
+      const truncated = prev.slice(0, hi + 1);
+      const nextHistory = [...truncated, next];
+      // Move the cursor to the new top in a followup setter so index derives
+      // from the same value we just computed.
+      queueMicrotask(() => setHi(nextHistory.length - 1));
+      return nextHistory;
+    });
   }
 
   function undo() {
     if (hi <= 0) return;
     const idx = hi - 1;
     setHi(idx);
-    setEffects(history[idx]!);
+    const v = history[idx];
+    if (v) setEffects(v);
   }
   function redo() {
     if (hi >= history.length - 1) return;
     const idx = hi + 1;
     setHi(idx);
-    setEffects(history[idx]!);
+    const v = history[idx];
+    if (v) setEffects(v);
   }
 
   async function save() {
@@ -162,8 +231,16 @@ export function EffectsEditor({
     setMessage(null);
     const res = await savePostEffects(postId, effects);
     setSaving(false);
-    setMessage(res.ok ? "효과를 저장했습니다." : (res.error ?? "저장 실패"));
+    if (res.ok) {
+      setSavedBaseline(effects);
+      setMessage("효과를 저장했습니다.");
+    } else {
+      setMessage(res.error ?? "저장 실패");
+    }
   }
+
+  // CSS fallback (or split-view "after" pane) filter string.
+  const filterStr = effectsToCssFilter(showOriginal ? DEFAULT_EFFECTS : effects);
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
@@ -171,29 +248,47 @@ export function EffectsEditor({
       <div>
         <div className="glass overflow-hidden p-3">
           <div className="relative overflow-hidden rounded-md bg-surface-2">
-            {/* Hidden source image for WebGL. */}
+            {/* Hidden source image for WebGL (also visible in fallback / split). */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               ref={imgRef}
               src={previewUrl ?? undefined}
               alt=""
               onLoad={onImgLoad}
-              className={webglOk ? "hidden" : "block w-full"}
+              onError={onImgError}
+              className={webglOk && !splitView ? "hidden" : "block w-full"}
               style={
                 webglOk
                   ? undefined
                   : {
-                      filter: showOriginal
-                        ? undefined
-                        : effectsToCssFilter(effects),
+                      filter: filterStr,
                     }
               }
             />
             {webglOk ? (
-              <canvas ref={canvasRef} className="block h-auto w-full" />
+              <canvas
+                ref={canvasRef}
+                className={
+                  splitView
+                    ? "absolute inset-y-0 left-0 h-full w-1/2 object-cover [clip-path:inset(0_0_0_0)]"
+                    : "block h-auto w-full"
+                }
+              />
+            ) : null}
+            {splitView ? (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-surface-solid/80"
+              />
             ) : null}
           </div>
         </div>
+
+        {loadError ? (
+          <p role="alert" className="mt-2 text-[13px] text-danger">
+            {loadError}
+          </p>
+        ) : null}
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-strong px-3 py-2 text-[14px]">
@@ -207,14 +302,26 @@ export function EffectsEditor({
           </label>
           <button
             type="button"
-            onMouseDown={() => setShowOriginal(true)}
-            onMouseUp={() => setShowOriginal(false)}
-            onMouseLeave={() => setShowOriginal(false)}
-            onTouchStart={() => setShowOriginal(true)}
-            onTouchEnd={() => setShowOriginal(false)}
+            onPointerDown={() => setShowOriginal(true)}
+            onPointerUp={() => setShowOriginal(false)}
+            onPointerLeave={() => setShowOriginal(false)}
+            onPointerCancel={() => setShowOriginal(false)}
+            onBlur={() => setShowOriginal(false)}
             className="rounded-md border border-strong px-3 py-2 text-[14px]"
           >
             원본 보기(누르기)
+          </button>
+          <button
+            type="button"
+            onClick={() => setSplitView((v) => !v)}
+            aria-pressed={splitView}
+            className={`rounded-md border px-3 py-2 text-[14px] ${
+              splitView
+                ? "border-accent-primary bg-accent-primary text-surface-solid"
+                : "border-strong"
+            }`}
+          >
+            분할 비교
           </button>
           <span className="text-[12px] text-ink-muted">
             {webglOk ? "WebGL 실시간 미리보기" : "CSS 폴백 미리보기"}
@@ -295,6 +402,9 @@ export function EffectsEditor({
         <div className="rounded-lg border border-soft bg-surface-1 p-4">
           <p className="text-[13px] text-ink-secondary">
             게시물에 효과 저장 (비파괴 · posts.effects)
+            {dirty ? (
+              <span className="ml-2 text-warning">· 저장되지 않은 변경</span>
+            ) : null}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <select

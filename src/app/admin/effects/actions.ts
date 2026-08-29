@@ -18,13 +18,26 @@ export async function savePostEffects(
   if (!postId) return { ok: false, error: "게시물을 선택해 주세요." };
 
   const clean = sanitizeEffects(effects);
-  const { error } = await supabase
+  // .select() with maybeSingle() proves a row actually updated — an UPDATE
+  // that matches zero rows (deleted post, or RLS silently hides it) returns
+  // no error and would otherwise be reported as success.
+  const { data, error } = await supabase
     .from("posts")
     .update({ effects: clean })
-    .eq("id", postId);
+    .eq("id", postId)
+    .select("id")
+    .maybeSingle();
 
   if (error) return { ok: false, error: "저장 권한이 없거나 실패했습니다." };
+  if (!data) {
+    return {
+      ok: false,
+      error: "게시물을 찾을 수 없거나 저장할 권한이 없습니다.",
+    };
+  }
 
-  revalidatePath("/", "layout");
+  // Revalidate only the affected surfaces, not the whole site.
+  revalidatePath(`/post/${postId}`);
+  revalidatePath("/admin/effects");
   return { ok: true };
 }

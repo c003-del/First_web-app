@@ -11,9 +11,15 @@ export function isWebglAvailable(): boolean {
   if (typeof document === "undefined") return false;
   try {
     const c = document.createElement("canvas");
-    return Boolean(
-      c.getContext("webgl") || c.getContext("experimental-webgl"),
-    );
+    const gl = (c.getContext("webgl") ||
+      c.getContext("experimental-webgl")) as WebGLRenderingContext | null;
+    if (!gl) return false;
+    // Actively release the probe context — browsers cap active WebGL contexts
+    // per page (Chrome ≈ 16). Calling this helper repeatedly during dev fast
+    // refresh must not evict the real editor context.
+    const lose = gl.getExtension("WEBGL_lose_context");
+    lose?.loseContext();
+    return true;
   } catch {
     return false;
   }
@@ -44,6 +50,7 @@ uniform float uVignette;   // 0..1
 uniform float uGrain;      // 0..1
 uniform float uBlur;       // 0..1
 uniform float uSharpen;    // 0..1
+uniform float uBloom;      // 0..1
 
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
@@ -98,6 +105,19 @@ void main() {
   float g = luma(c);
   c = mix(vec3(g), c, 1.0 + uSaturation);
 
+  // Bloom: pull bright pixels and add a soft glow from a wide box sample.
+  if (uBloom > 0.001) {
+    float r = 3.0;
+    vec3 sum = vec3(0.0);
+    sum += texture2D(uTex, vUv + vec2( uTexel.x*r,  uTexel.y*r)).rgb;
+    sum += texture2D(uTex, vUv + vec2(-uTexel.x*r,  uTexel.y*r)).rgb;
+    sum += texture2D(uTex, vUv + vec2( uTexel.x*r, -uTexel.y*r)).rgb;
+    sum += texture2D(uTex, vUv + vec2(-uTexel.x*r, -uTexel.y*r)).rgb;
+    vec3 avg = sum * 0.25;
+    vec3 bright = max(avg - vec3(0.6), vec3(0.0));
+    c += bright * uBloom * 1.5;
+  }
+
   // Vignette.
   if (uVignette > 0.001) {
     float d = distance(vUv, vec2(0.5));
@@ -128,6 +148,7 @@ function compile(gl: WebGLRenderingContext, type: number, src: string) {
 
 export interface EffectRenderer {
   render(source: TexImageSource, effects: MediaEffects): void;
+  isLost(): boolean;
   dispose(): void;
 }
 
@@ -138,11 +159,19 @@ export function createEffectRenderer(
     canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
   if (!gl) return null;
 
-  const program = gl.createProgram()!;
-  gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERT));
-  gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, FRAG));
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+  // Shader compile can throw on a device that lacks required precision or
+  // extensions. Swallow the throw and let the caller drop to the CSS fallback
+  // instead of leaving an unhandled exception inside a rAF callback.
+  let program: WebGLProgram;
+  try {
+    program = gl.createProgram()!;
+    gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERT));
+    gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, FRAG));
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      return null;
+    }
+  } catch {
     return null;
   }
   gl.useProgram(program);
@@ -184,10 +213,21 @@ export function createEffectRenderer(
     grain: u("uGrain"),
     blur: u("uBlur"),
     sharpen: u("uSharpen"),
+    bloom: u("uBloom"),
   };
+
+  // Context-loss recovery: mark the context lost, then re-run this factory on
+  // restore. The renderer instance is stable but its GL objects are recreated.
+  let lost = false;
+  const onLost = (ev: Event) => {
+    ev.preventDefault();
+    lost = true;
+  };
+  canvas.addEventListener("webglcontextlost", onLost, false);
 
   return {
     render(source: TexImageSource, e: MediaEffects) {
+      if (lost) return;
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
       gl.texImage2D(
@@ -212,13 +252,20 @@ export function createEffectRenderer(
       gl.uniform1f(uni.grain, e.grain / 100);
       gl.uniform1f(uni.blur, e.blur / 100);
       gl.uniform1f(uni.sharpen, e.sharpen / 100);
+      gl.uniform1f(uni.bloom, e.bloom / 100);
 
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     },
+    isLost() {
+      return lost;
+    },
     dispose() {
-      gl.deleteTexture(tex);
-      gl.deleteBuffer(buf);
-      gl.deleteProgram(program);
+      canvas.removeEventListener("webglcontextlost", onLost);
+      if (!lost) {
+        gl.deleteTexture(tex);
+        gl.deleteBuffer(buf);
+        gl.deleteProgram(program);
+      }
     },
   };
 }
