@@ -24,8 +24,12 @@ export interface SessionState {
  */
 export async function updateSession(
   request: NextRequest,
+  requestHeaders?: Headers,
 ): Promise<SessionState> {
-  let response = NextResponse.next({ request });
+  const nextInit = requestHeaders
+    ? { request: { headers: requestHeaders } }
+    : { request };
+  let response = NextResponse.next(nextInit);
 
   if (!isSupabaseConfigured()) {
     return { response, isAuthenticated: false, aal: null };
@@ -40,7 +44,7 @@ export async function updateSession(
         cookiesToSet.forEach(({ name, value }) =>
           request.cookies.set(name, value),
         );
-        response = NextResponse.next({ request });
+        response = NextResponse.next(nextInit);
         cookiesToSet.forEach(({ name, value, options }) =>
           response.cookies.set(name, value, options),
         );

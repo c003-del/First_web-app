@@ -1,41 +1,39 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/Button";
+import { isSupabaseConfigured } from "@/lib/config";
+import { loginAction } from "./actions";
 
+/**
+ * Login goes through a server action so the rate-limit gate + Supabase auth
+ * happen server-side. The action returns a generic error on any failure so a
+ * client can't distinguish invalid password from unknown account.
+ */
 export function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [pending, start] = useTransition();
 
-  const supabase = createClient();
-  const demo = supabase === null;
+  const demo = !isSupabaseConfigured();
 
-  async function onSubmit(e: React.FormEvent) {
+  function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (demo) return;
     setError(null);
-    if (!supabase) return;
-    setBusy(true);
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    start(async () => {
+      const res = await loginAction({ email, password });
+      // On success the action throws via redirect() and never returns.
+      if (!res.ok) {
+        setError(res.error ?? "로그인 실패");
+      } else {
+        router.replace("/mfa/verify");
+      }
     });
-    setBusy(false);
-
-    if (error) {
-      // Generic message — never reveal whether the account exists (§20).
-      setError("이메일 또는 비밀번호가 올바르지 않습니다.");
-      return;
-    }
-    // Middleware routes AAL1 sessions to /mfa/verify automatically.
-    router.replace("/mfa/verify");
-    router.refresh();
   }
 
   return (
@@ -86,8 +84,8 @@ export function LoginForm() {
         </p>
       ) : null}
 
-      <Button type="submit" disabled={busy || demo} className="w-full">
-        {busy ? "확인 중…" : "로그인"}
+      <Button type="submit" disabled={pending || demo} className="w-full">
+        {pending ? "확인 중…" : "로그인"}
       </Button>
     </form>
   );

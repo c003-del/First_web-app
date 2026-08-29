@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 import { SITE_DEFAULTS } from "@/lib/config";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -24,11 +25,16 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Read the per-request CSP nonce so Next.js hydration scripts inherit trust.
+  // Next.js automatically applies this to its built-in <script> tags when the
+  // request carries the `x-nonce` header from middleware.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
     <html lang="ko">
       <head>
@@ -41,6 +47,7 @@ export default function RootLayout({
           rel="stylesheet"
           as="style"
           href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css"
+          nonce={nonce}
         />
       </head>
       <body>
