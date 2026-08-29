@@ -28,17 +28,23 @@ export async function generateImageThumb(
 ): Promise<ImageThumbResult | null> {
   try {
     const bitmap = await createImageBitmap(file);
-    const { w, h } = scaled(bitmap.width, bitmap.height, THUMB_MAX_EDGE);
+    // Capture intrinsic dimensions BEFORE closing — a detached bitmap reports 0.
+    const width = bitmap.width;
+    const height = bitmap.height;
+    const { w, h } = scaled(width, height, THUMB_MAX_EDGE);
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
+    if (!ctx) {
+      bitmap.close();
+      return null;
+    }
     ctx.drawImage(bitmap, 0, 0, w, h);
     const blob = await canvasToWebp(canvas);
     bitmap.close();
     if (!blob) return null;
-    return { blob, width: bitmap.width, height: bitmap.height };
+    return { blob, width, height };
   } catch {
     return null;
   }

@@ -62,11 +62,13 @@ export function Uploader({ categories }: { categories: CategoryOption[] }) {
     if (!supabase || busy) return;
     setMessage(null);
 
+    // Only 'pending' items are submitted. Each submit becomes exactly one post,
+    // so we never re-submit already-processed items into a second post.
     const acceptedIdx = items
       .map((it, i) => ({ it, i }))
-      .filter(({ it }) => it.status === "pending" || it.status === "failed");
+      .filter(({ it }) => it.status === "pending");
     if (acceptedIdx.length === 0) {
-      setMessage("업로드할 파일을 선택해 주세요.");
+      setMessage("업로드할 새 파일을 선택해 주세요.");
       return;
     }
     if (!categoryId) {
@@ -85,16 +87,20 @@ export function Uploader({ categories }: { categories: CategoryOption[] }) {
       );
 
       const res = await prepareUploadBatch({ categoryId, title, files: metas });
-      if (!res.ok || !res.uploads) {
-        setMessage(res.error ?? "업로드를 시작하지 못했습니다.");
-        setBusy(false);
-        return;
-      }
 
       res.rejected?.forEach((r) => {
         const target = acceptedIdx[r.index];
         if (target) patch(target.i, { status: "rejected", note: r.reason });
       });
+
+      if (!res.ok || !res.uploads || res.uploads.length === 0) {
+        setMessage(
+          res.error ??
+            "업로드할 수 있는 파일이 없습니다. 파일 형식과 크기를 확인해 주세요.",
+        );
+        setBusy(false);
+        return;
+      }
 
       const bucket = supabase.storage.from(MEDIA_BUCKET);
 

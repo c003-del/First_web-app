@@ -72,7 +72,9 @@ export const getRecentPosts = cache(async (limit = 8): Promise<Post[]> => {
     .order("created_at", { ascending: false })
     .limit(limit);
 
-  return withSignedUrls(supabase, (data ?? []).map(rowToPost));
+  return withSignedUrls(supabase, (data ?? []).map(rowToPost), {
+    coverOnly: true,
+  });
 });
 
 /**
@@ -97,7 +99,9 @@ export const getPostsByScope = cache(
       .order("created_at", { ascending: false })
       .limit(limit);
 
-    return withSignedUrls(supabase, (data ?? []).map(rowToPost));
+    return withSignedUrls(supabase, (data ?? []).map(rowToPost), {
+      coverOnly: true,
+    });
   },
 );
 
@@ -135,7 +139,9 @@ export const getPostsByCategory = cache(
 
     return {
       category: rowToCategory(cat),
-      posts: await withSignedUrls(supabase, (posts ?? []).map(rowToPost)),
+      posts: await withSignedUrls(supabase, (posts ?? []).map(rowToPost), {
+        coverOnly: true,
+      }),
     };
   },
 );
@@ -221,13 +227,24 @@ function rowToPost(r: any): Post {
 async function withSignedUrls(
   supabase: SupabaseClient,
   posts: Post[],
+  opts: { coverOnly?: boolean } = {},
 ): Promise<Post[]> {
+  const coverOnly = opts.coverOnly ?? false;
   const paths: string[] = [];
   for (const p of posts) {
-    for (const m of p.media) {
-      if (m.storagePath) paths.push(m.storagePath);
-      if (m.thumbPath) paths.push(m.thumbPath);
-      if (m.posterPath) paths.push(m.posterPath);
+    // List views render only the cover thumbnail, so sign just that — and
+    // prefer the thumbnail over the full-resolution original to avoid handing
+    // out signed originals that never get displayed.
+    const media = coverOnly ? p.media.slice(0, 1) : p.media;
+    for (const m of media) {
+      if (coverOnly) {
+        if (m.thumbPath) paths.push(m.thumbPath);
+        else if (m.storagePath) paths.push(m.storagePath);
+      } else {
+        if (m.storagePath) paths.push(m.storagePath);
+        if (m.thumbPath) paths.push(m.thumbPath);
+        if (m.posterPath) paths.push(m.posterPath);
+      }
     }
   }
   const map = await signPaths(supabase, paths);
@@ -235,9 +252,10 @@ async function withSignedUrls(
 
   for (const p of posts) {
     for (const m of p.media) {
-      if (m.storagePath) m.url = map.get(m.storagePath) ?? m.url;
-      if (m.thumbPath) m.thumbUrl = map.get(m.thumbPath) ?? m.thumbUrl;
-      if (m.posterPath) m.posterUrl = map.get(m.posterPath) ?? m.posterUrl;
+      if (m.storagePath && map.has(m.storagePath)) m.url = map.get(m.storagePath);
+      if (m.thumbPath && map.has(m.thumbPath)) m.thumbUrl = map.get(m.thumbPath);
+      if (m.posterPath && map.has(m.posterPath))
+        m.posterUrl = map.get(m.posterPath);
     }
   }
   return posts;

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { validateUpload, buildStoragePath } from "@/lib/upload";
-import { supportForExt } from "@/lib/media";
+import { supportForExt, mimeForExt } from "@/lib/media";
 import { MEDIA_BUCKET, SITE_ID } from "@/lib/storage";
 import type { MediaKind } from "@/lib/types";
 
@@ -68,6 +68,7 @@ export async function prepareUploadBatch(input: {
     meta: UploadFileMeta;
     ext: string;
     kind: MediaKind;
+    mime: string;
   }[] = [];
   const rejected: { index: number; fileName: string; reason: string }[] = [];
   input.files.forEach((f, index) => {
@@ -76,7 +77,13 @@ export async function prepareUploadBatch(input: {
     if (!v.ok || !v.kind) {
       rejected.push({ index, fileName: f.fileName, reason: v.reason ?? "거부됨" });
     } else {
-      accepted.push({ index, meta: f, ext: v.ext, kind: v.kind });
+      accepted.push({
+        index,
+        meta: f,
+        ext: v.ext,
+        kind: v.kind,
+        mime: v.sniffedMime ?? mimeForExt(v.ext) ?? "application/octet-stream",
+      });
     }
   });
   if (accepted.length === 0) {
@@ -113,17 +120,25 @@ export async function prepareUploadBatch(input: {
     };
     const originalPath = buildStoragePath(base);
 
-    await supabase.from("media").insert({
+    const { error: mediaErr } = await supabase.from("media").insert({
       id: mediaId,
       post_id: post.id,
       kind: a.kind,
       support,
       status: "uploading",
       ext: a.ext,
-      mime: "application/octet-stream",
+      mime: a.mime,
       storage_path: originalPath,
       original_name: a.meta.fileName,
     });
+    if (mediaErr) {
+      rejected.push({
+        index: a.index,
+        fileName: a.meta.fileName,
+        reason: "미디어 레코드 생성 실패",
+      });
+      continue;
+    }
 
     const original = await bucket.createSignedUploadUrl(originalPath);
     if (original.error || !original.data) {
