@@ -63,12 +63,15 @@ export interface MediaItem {
   sort: number;
 }
 
+export type PostVisibility = "private" | "family" | "owner";
+
 export interface Post {
   id: string;
   categoryId: string;
   title: string;
   caption?: string | null;
   takenAt?: string | null;
+  visibility?: PostVisibility;
   createdAt: string;
   media: MediaItem[];
 }

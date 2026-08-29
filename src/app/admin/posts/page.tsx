@@ -1,13 +1,30 @@
-import { AdminPlaceholder } from "@/components/AdminPlaceholder";
+import { getCategories, getRecentPosts } from "@/lib/data";
+import { PostsEditor } from "./PostsEditor";
 
 export const metadata = { title: "게시물 관리" };
 
-export default function AdminPostsPage() {
+export default async function AdminPostsPage() {
+  const [posts, owner, family] = await Promise.all([
+    getRecentPosts(100),
+    getCategories("owner"),
+    getCategories("family"),
+  ]);
+
+  const categoryOptions = [
+    ...owner.map((c) => ({ id: c.id, name: c.name, scopeLabel: "개인" })),
+    ...family.map((c) => ({ id: c.id, name: c.name, scopeLabel: "가족" })),
+  ];
+
   return (
-    <AdminPlaceholder
-      title="게시물 관리"
-      phase="Phase 4–7"
-      summary="초안 생성, 다중 미디어 첨부, 대표 이미지 지정, 제목·캡션 편집, 카테고리 지정, 촬영일·공개 대상 설정, 게시·보관·삭제(soft delete)를 제공합니다."
-    />
+    <div>
+      <h1 className="text-2xl">게시물 관리</h1>
+      <p className="mt-2 text-[14px] leading-6 text-ink-secondary">
+        최근 게시물을 편집합니다. 삭제는 소프트 삭제(복원 가능)이며 원본 미디어는
+        보존됩니다.
+      </p>
+      <div className="mt-6">
+        <PostsEditor posts={posts} categories={categoryOptions} />
+      </div>
+    </div>
   );
 }
