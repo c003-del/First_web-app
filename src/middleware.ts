@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 import { isSupabaseConfigured } from "@/lib/config";
+import { buildCsp, generateNonce } from "@/lib/security";
 
 /**
  * Route gating (guidelines §3, §8, §16):
@@ -13,6 +14,11 @@ import { isSupabaseConfigured } from "@/lib/config";
  * Hiding /admin is NOT treated as security — it is enforced, not obscured.
  * In demo mode (no Supabase env) the app renders publicly so the UI is
  * explorable; a banner makes that explicit.
+ *
+ * Security headers (guidelines §20): a per-request nonce drives a strict CSP.
+ * The nonce rides on the request headers so Next.js stamps its own scripts;
+ * the CSP is also written to every response. Static headers live in
+ * next.config.mjs.
  */
 
 const PUBLIC_PREFIXES = ["/login", "/mfa", "/recovery", "/auth"];
@@ -24,37 +30,55 @@ function isPublic(pathname: string): boolean {
 }
 
 export async function middleware(request: NextRequest) {
+  const nonce = generateNonce();
+  const csp = buildCsp(nonce, process.env.NODE_ENV === "development");
+
+  // Forward the nonce + CSP on the request so Next.js can nonce its scripts.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", csp);
+
+  const finalize = (res: NextResponse) => {
+    res.headers.set("Content-Security-Policy", csp);
+    return res;
+  };
+
   // Demo mode: no Supabase configured, so there is no auth to enforce. Let
   // everything render so the design is explorable. Keyed on configuration —
   // NOT on cookie presence — so a real deploy always gates unauthenticated
   // visitors regardless of whether they carry stale cookies.
   if (!isSupabaseConfigured()) {
-    return NextResponse.next({ request });
+    return finalize(
+      NextResponse.next({ request: { headers: requestHeaders } }),
+    );
   }
 
-  const { response, isAuthenticated, aal } = await updateSession(request);
+  const { response, isAuthenticated, aal } = await updateSession(
+    request,
+    requestHeaders,
+  );
   const { pathname } = request.nextUrl;
 
   if (!isAuthenticated) {
-    if (isPublic(pathname)) return response;
-    return redirect(request, "/login");
+    if (isPublic(pathname)) return finalize(response);
+    return finalize(redirect(request, "/login"));
   }
 
   // Authenticated but has not completed MFA.
   if (aal !== "aal2") {
     if (pathname.startsWith("/mfa") || pathname.startsWith("/auth")) {
-      return response;
+      return finalize(response);
     }
-    return redirect(request, "/mfa/verify");
+    return finalize(redirect(request, "/mfa/verify"));
   }
 
   // AAL2 users landing on auth pages get bounced home.
   if (pathname === "/login" || pathname === "/mfa/verify") {
-    return redirect(request, "/");
+    return finalize(redirect(request, "/"));
   }
 
   // /admin requires AAL2 (checked above). Role is re-verified in the layout.
-  return response;
+  return finalize(response);
 }
 
 function redirect(request: NextRequest, to: string) {
