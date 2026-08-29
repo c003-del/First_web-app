@@ -68,6 +68,19 @@ as $$
   select public.is_admin() and public.has_aal2();
 $$;
 
+-- Per-post read authorization by visibility (guidelines §17):
+--   'family'          → any authorized member may read
+--   'owner'/'private' → owner|admin only
+create or replace function public.can_read_post(p_visibility text)
+returns boolean
+language sql
+stable
+as $$
+  select public.has_aal2()
+     and public.is_active_member()
+     and (p_visibility = 'family' or public.is_admin());
+$$;
+
 -- updated_at trigger helper
 create or replace function public.touch_updated_at()
 returns trigger
@@ -140,7 +153,9 @@ create table if not exists public.posts (
   title       text not null default '',
   caption     text,
   taken_at    date,
-  visibility  text not null default 'private'
+  -- Default 'family': visible to all authorized members. Set 'owner'/'private'
+  -- to restrict a post to owner|admin (enforced by can_read_post in RLS).
+  visibility  text not null default 'family'
                 check (visibility in ('private', 'family', 'owner')),
   effects     jsonb not null default '{}'::jsonb,
   created_by  uuid references auth.users (id),
@@ -242,19 +257,20 @@ create policy categories_select on public.categories
 create policy categories_write on public.categories
   for all using (public.can_write()) with check (public.can_write());
 
--- posts: members read non-deleted; admins write.
+-- posts: members read non-deleted posts they're allowed to see; admins write.
 create policy posts_select on public.posts
-  for select using (public.can_read() and deleted_at is null);
+  for select using (public.can_read_post(visibility) and deleted_at is null);
 create policy posts_write on public.posts
   for all using (public.can_write()) with check (public.can_write());
 
--- media: members read rows for readable posts; admins write.
+-- media: readable only when the parent post is readable; admins write.
 create policy media_select on public.media
   for select using (
-    public.can_read()
-    and exists (
+    exists (
       select 1 from public.posts p
-      where p.id = media.post_id and p.deleted_at is null
+      where p.id = media.post_id
+        and p.deleted_at is null
+        and public.can_read_post(p.visibility)
     )
   );
 create policy media_write on public.media

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getCategories, getRecentPosts, getSiteSettings } from "@/lib/data";
+import { getCategories, getPostsByScope, getSiteSettings } from "@/lib/data";
 import { MediaGallery } from "@/components/MediaGallery";
 
 export default async function OwnerPage({
@@ -12,14 +12,11 @@ export default async function OwnerPage({
   const site = await getSiteSettings();
   if (ownerSlug !== site.ownerSlug) notFound();
 
-  const [cats, recent] = await Promise.all([
+  const [cats, posts] = await Promise.all([
     getCategories("owner"),
-    getRecentPosts(24),
+    getPostsByScope("owner", 24),
   ]);
   const subCats = cats.filter((c) => !c.parentId);
-  const posts = recent.filter((p) =>
-    subCats.some((c) => c.id === p.categoryId),
-  );
 
   return (
     <div>

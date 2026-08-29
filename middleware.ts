@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
+import { isSupabaseConfigured } from "@/lib/config";
 
 /**
  * Route gating (guidelines §3, §8, §16):
@@ -23,14 +24,16 @@ function isPublic(pathname: string): boolean {
 }
 
 export async function middleware(request: NextRequest) {
+  // Demo mode: no Supabase configured, so there is no auth to enforce. Let
+  // everything render so the design is explorable. Keyed on configuration —
+  // NOT on cookie presence — so a real deploy always gates unauthenticated
+  // visitors regardless of whether they carry stale cookies.
+  if (!isSupabaseConfigured()) {
+    return NextResponse.next({ request });
+  }
+
   const { response, isAuthenticated, aal } = await updateSession(request);
   const { pathname } = request.nextUrl;
-
-  // Demo mode: updateSession reports unauthenticated but we don't have auth to
-  // enforce. Let everything render so the design is explorable.
-  if (aal === null && !isAuthenticated && !hasSupabaseCookies(request)) {
-    return response;
-  }
 
   if (!isAuthenticated) {
     if (isPublic(pathname)) return response;
@@ -59,12 +62,6 @@ function redirect(request: NextRequest, to: string) {
   url.pathname = to;
   url.search = "";
   return NextResponse.redirect(url);
-}
-
-function hasSupabaseCookies(request: NextRequest): boolean {
-  return request.cookies
-    .getAll()
-    .some((c) => c.name.startsWith("sb-") && c.name.includes("auth-token"));
 }
 
 export const config = {

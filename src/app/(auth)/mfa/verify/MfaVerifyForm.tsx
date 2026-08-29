@@ -20,11 +20,14 @@ export function MfaVerifyForm() {
       return;
     }
     supabase.auth.mfa.listFactors().then(({ data, error }) => {
-      if (error) setError("인증 수단을 불러오지 못했습니다.");
+      setLoading(false);
+      if (error) {
+        setError("인증 수단을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+        return;
+      }
       const verified = data?.totp?.find((f) => f.status === "verified");
       if (verified) setFactorId(verified.id);
       else setError("등록된 인증 앱이 없습니다. 먼저 등록해 주세요.");
-      setLoading(false);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

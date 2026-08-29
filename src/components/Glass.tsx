@@ -1,8 +1,5 @@
 import { type HTMLAttributes } from "react";
-
-function cx(...parts: Array<string | false | undefined>): string {
-  return parts.filter(Boolean).join(" ");
-}
+import { cx } from "@/lib/cx";
 
 interface GlassProps extends HTMLAttributes<HTMLDivElement> {
   /** Use the more opaque fill where text contrast matters. */

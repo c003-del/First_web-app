@@ -1,18 +1,15 @@
 import Link from "next/link";
-import { getCategories, getRecentPosts } from "@/lib/data";
+import { getCategories, getPostsByScope } from "@/lib/data";
 import { MediaGallery } from "@/components/MediaGallery";
 
 export const metadata = { title: "가족" };
 
 export default async function FamilyPage() {
-  const [cats, recent] = await Promise.all([
+  const [cats, posts] = await Promise.all([
     getCategories("family"),
-    getRecentPosts(24),
+    getPostsByScope("family", 24),
   ]);
   const subCats = cats.filter((c) => !c.parentId);
-  const posts = recent.filter((p) =>
-    subCats.some((c) => c.id === p.categoryId),
-  );
 
   return (
     <div>

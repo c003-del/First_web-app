@@ -1,8 +1,5 @@
 import { type ButtonHTMLAttributes } from "react";
-
-function cx(...parts: Array<string | false | undefined>): string {
-  return parts.filter(Boolean).join(" ");
-}
+import { cx } from "@/lib/cx";
 
 type Variant = "primary" | "ghost" | "danger";
 

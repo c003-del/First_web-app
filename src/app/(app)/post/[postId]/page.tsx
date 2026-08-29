@@ -47,6 +47,9 @@ export default async function PostPage({
 }
 
 function MediaBlock({ item }: { item: MediaItem }) {
+  // `storagePath` is a bucket path, not a URL. Demo content uses absolute
+  // placeholder URLs so this renders directly. In production, resolve a
+  // short-lived signed URL server-side before render (Phase 5 upload work).
   const src = item.storagePath;
   const ratio =
     item.width && item.height ? `${item.width} / ${item.height}` : "4 / 3";
