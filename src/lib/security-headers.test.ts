@@ -13,6 +13,18 @@ describe("buildCsp", () => {
     expect(csp).toContain("'strict-dynamic'");
   });
 
+  it("script-src excludes unsafe-inline and wildcard https:", () => {
+    const csp = buildCsp("x");
+    const scriptSrc = csp
+      .split(";")
+      .map((s) => s.trim())
+      .find((s) => s.startsWith("script-src"));
+    expect(scriptSrc).toBeDefined();
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
+    expect(scriptSrc).not.toContain("'unsafe-eval'");
+    expect(scriptSrc?.split(/\s+/)).not.toContain("https:");
+  });
+
   it("locks down framing and object-src", () => {
     const csp = buildCsp("x");
     expect(csp).toContain("frame-ancestors 'none'");
@@ -49,5 +61,6 @@ describe("STATIC_SECURITY_HEADERS", () => {
     expect(keys).toContain("Referrer-Policy");
     expect(keys).toContain("Permissions-Policy");
     expect(keys).toContain("Strict-Transport-Security");
+    expect(keys).toContain("Cross-Origin-Opener-Policy");
   });
 });

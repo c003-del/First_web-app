@@ -24,12 +24,22 @@ export interface SessionState {
  */
 export async function updateSession(
   request: NextRequest,
-  requestHeaders?: Headers,
+  extraRequestHeaders?: Headers,
 ): Promise<SessionState> {
-  const nextInit = requestHeaders
-    ? { request: { headers: requestHeaders } }
-    : { request };
-  let response = NextResponse.next(nextInit);
+  // Build response headers from LIVE request.headers so subsequent cookie
+  // mutations propagate to server components. Overlay any extra headers
+  // (e.g. x-nonce, Content-Security-Policy) the caller supplied.
+  const composeRequestHeaders = (): Headers => {
+    const h = new Headers(request.headers);
+    if (extraRequestHeaders) {
+      extraRequestHeaders.forEach((v, k) => h.set(k, v));
+    }
+    return h;
+  };
+
+  let response = NextResponse.next({
+    request: { headers: composeRequestHeaders() },
+  });
 
   if (!isSupabaseConfigured()) {
     return { response, isAuthenticated: false, aal: null };
@@ -44,7 +54,11 @@ export async function updateSession(
         cookiesToSet.forEach(({ name, value }) =>
           request.cookies.set(name, value),
         );
-        response = NextResponse.next(nextInit);
+        // Re-derive headers so downstream server components see the refreshed
+        // Cookie value, not a pre-refresh snapshot.
+        response = NextResponse.next({
+          request: { headers: composeRequestHeaders() },
+        });
         cookiesToSet.forEach(({ name, value, options }) =>
           response.cookies.set(name, value, options),
         );

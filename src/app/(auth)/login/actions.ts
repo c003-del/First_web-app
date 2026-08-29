@@ -3,14 +3,20 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { bumpRate, resetRate } from "@/lib/rate-limit";
+import { bumpRate, peekRate, resetRate } from "@/lib/rate-limit";
 
 /**
  * Server-side login with rate limiting.
  *
- * Rate limiting runs BEFORE the auth call so a bot can't drain Supabase-side
- * quotas or oracle-attack accounts. Buckets are keyed by (client IP + email)
- * so a shared network doesn't lock everyone out over one bad password.
+ * Threat model:
+ *  - Attacker knows a target email and password-sprays: we lock the account's
+ *    bucket after 5 failures. We PEEK the bucket first and bump ONLY on a
+ *    failed auth, so a shared-NAT user with the correct password doesn't
+ *    consume attempts an attacker has already spent.
+ *  - Attacker spoofs x-forwarded-for to rotate their apparent IP: on a trusted
+ *    proxy we accept XFF[0]; otherwise we ignore it entirely and key the
+ *    bucket on email alone. Set TRUST_PROXY=1 on Vercel/behind a proxy that
+ *    overwrites XFF.
  *
  * Error messages are deliberately generic — never leak whether an account
  * exists (guidelines §20).
@@ -22,11 +28,18 @@ export interface LoginResult {
   retryAfterSeconds?: number;
 }
 
+const TRUST_PROXY = process.env.TRUST_PROXY === "1";
+
 async function clientIpAsync(): Promise<string> {
+  if (!TRUST_PROXY) return "untrusted";
   const hh = await headers();
   const xff = hh.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0]!.trim();
-  return hh.get("x-real-ip") ?? "unknown";
+  if (xff) {
+    const first = xff.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  const real = hh.get("x-real-ip")?.trim();
+  return real || "untrusted";
 }
 
 export async function loginAction(input: {
@@ -43,17 +56,20 @@ export async function loginAction(input: {
 
   const supabase = await createClient();
   if (!supabase) {
-    // Demo mode: login is unavailable.
     return { ok: false, error: "Supabase가 연결되지 않았습니다." };
   }
 
   const ip = await clientIpAsync();
   const key = `login:${ip}:${email}`;
-  const gate = bumpRate(key);
+
+  // Peek FIRST: if already locked, refuse without bumping. This means a valid
+  // password on a bucket someone else already tried doesn't push the count
+  // higher (the honest user can still succeed and clear the bucket).
+  const gate = peekRate(key);
   if (!gate.allowed) {
     return {
       ok: false,
-      error: `잠시 후 다시 시도해 주세요.`,
+      error: "잠시 후 다시 시도해 주세요.",
       retryAfterSeconds: gate.retryAfterSeconds,
     };
   }
@@ -62,9 +78,16 @@ export async function loginAction(input: {
     email,
     password,
   });
+
   if (error) {
-    // Keep the counter bumped; never disclose whether the account exists.
-    return { ok: false, error: "이메일 또는 비밀번호가 올바르지 않습니다." };
+    // Only failed attempts consume the budget.
+    const after = bumpRate(key);
+    return {
+      ok: false,
+      error: "이메일 또는 비밀번호가 올바르지 않습니다.",
+      // Surface the lock timer only once the bump made the bucket refuse further attempts.
+      retryAfterSeconds: after.allowed ? undefined : after.retryAfterSeconds,
+    };
   }
 
   resetRate(key);

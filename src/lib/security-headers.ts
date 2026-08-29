@@ -18,9 +18,15 @@
  */
 
 export function buildCsp(nonce: string): string {
+  // script-src intentionally has NO 'unsafe-inline' and NO wildcard https:
+  //   'nonce-XXX'      → nonced scripts (Next.js hydration entry) execute
+  //   'strict-dynamic' → those scripts may propagate trust to imports they
+  //                      load themselves; nothing else runs
+  // On CSP1-only browsers (very rare in 2026) both directives are unknown
+  // and script-src collapses to `'self'` — restrictive, not permissive.
   const directives = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline' https:`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
     "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
     "img-src 'self' data: blob: https:",
     "media-src 'self' blob: https:",

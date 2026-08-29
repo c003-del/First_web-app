@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { bumpRate, resetRate, _clearAllRate } from "@/lib/rate-limit";
+import { bumpRate, peekRate, resetRate, _clearAllRate } from "@/lib/rate-limit";
 
 describe("bumpRate", () => {
   beforeEach(() => _clearAllRate());
@@ -49,5 +49,29 @@ describe("bumpRate", () => {
     resetRate("g@x");
     const r = bumpRate("g@x", 1100);
     expect(r.remainingAttempts).toBe(4);
+  });
+});
+
+describe("peekRate", () => {
+  beforeEach(() => _clearAllRate());
+
+  it("does not consume attempts on empty key", () => {
+    const p1 = peekRate("h@x");
+    const p2 = peekRate("h@x");
+    expect(p1.allowed).toBe(true);
+    expect(p2.remainingAttempts).toBe(5);
+  });
+
+  it("reports locked status after cap", () => {
+    for (let i = 0; i < 6; i++) bumpRate("i@x", 1000);
+    const p = peekRate("i@x", 1000 + 60 * 1000);
+    expect(p.allowed).toBe(false);
+    expect(p.retryAfterSeconds).toBeGreaterThan(0);
+  });
+
+  it("reflects window expiry without bumping", () => {
+    bumpRate("j@x", 1000);
+    const p = peekRate("j@x", 1000 + 20 * 60 * 1000);
+    expect(p.remainingAttempts).toBe(5);
   });
 });

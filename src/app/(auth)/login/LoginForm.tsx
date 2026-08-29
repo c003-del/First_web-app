@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/Button";
 import { isSupabaseConfigured } from "@/lib/config";
 import { loginAction } from "./actions";
@@ -12,7 +11,6 @@ import { loginAction } from "./actions";
  * client can't distinguish invalid password from unknown account.
  */
 export function LoginForm() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
@@ -26,12 +24,19 @@ export function LoginForm() {
     if (demo) return;
     setError(null);
     start(async () => {
+      // On success the server action calls redirect(), which throws
+      // NEXT_REDIRECT server-side but resolves the client promise to
+      // `undefined` — so this branch only runs on FAILURE. Guard `res?.ok`
+      // defensively in case a future signature adds another success path.
       const res = await loginAction({ email, password });
-      // On success the action throws via redirect() and never returns.
-      if (!res.ok) {
-        setError(res.error ?? "로그인 실패");
-      } else {
-        router.replace("/mfa/verify");
+      if (!res || res.ok === false) {
+        const msg = res?.error ?? "로그인 실패";
+        const retry = res?.retryAfterSeconds;
+        setError(
+          retry
+            ? `${msg} (약 ${Math.ceil(retry / 60)}분 후 다시 시도)`
+            : msg,
+        );
       }
     });
   }
