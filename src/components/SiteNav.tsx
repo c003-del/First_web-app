@@ -43,6 +43,8 @@ export function SiteNav({
           <NavLink href="/">홈</NavLink>
           <Dropdown label={ownerLabel} href={`/${ownerSlug}`} items={ownerCategories} base={`/${ownerSlug}`} />
           <Dropdown label="가족" href="/family" items={familyCategories} base="/family" />
+          <NavLink href="/search">검색</NavLink>
+          <NavLink href="/settings">계정</NavLink>
         </ul>
 
         {/* Mobile toggle */}
@@ -81,6 +83,12 @@ export function SiteNav({
             items={familyCategories}
             onNavigate={() => setOpen(false)}
           />
+          <MobileLink href="/search" onNavigate={() => setOpen(false)}>
+            검색
+          </MobileLink>
+          <MobileLink href="/settings" onNavigate={() => setOpen(false)}>
+            계정
+          </MobileLink>
         </div>
       ) : null}
 

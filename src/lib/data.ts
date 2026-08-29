@@ -146,6 +146,113 @@ export const getPostsByCategory = cache(
   },
 );
 
+export interface PostFilters {
+  scope?: CategoryScope;
+  categoryId?: string;
+  kind?: "image" | "video";
+  query?: string;
+  year?: number;
+  sort?: "newest" | "oldest" | "taken";
+  limit?: number;
+}
+
+/**
+ * Filtered listing used by the search/filter UI. Applies criteria at query
+ * time (indexed columns) then relies on withSignedUrls to resolve display
+ * URLs. Kind ("image"/"video") is post-filtered so we only surface posts that
+ * carry media of the requested type.
+ */
+export const searchPosts = cache(
+  async (filters: PostFilters = {}): Promise<Post[]> => {
+    const supabase = await createClient();
+    if (!supabase) {
+      const catIds = new Set(
+        filters.scope
+          ? DEMO_CATEGORIES.filter((c) => c.scope === filters.scope).map(
+              (c) => c.id,
+            )
+          : DEMO_CATEGORIES.map((c) => c.id),
+      );
+      let posts = DEMO_POSTS.filter((p) => catIds.has(p.categoryId));
+      posts = applyClientFilters(posts, filters);
+      return posts.slice(0, filters.limit ?? 40);
+    }
+
+    const selectExpr = filters.scope
+      ? `${POST_SELECT}, category:categories!inner(scope)`
+      : POST_SELECT;
+    let q = supabase.from("posts").select(selectExpr);
+
+    if (filters.scope) q = q.eq("category.scope", filters.scope);
+    if (filters.categoryId) q = q.eq("category_id", filters.categoryId);
+    if (filters.query) {
+      const term = escapeIlike(filters.query.trim()).slice(0, 80);
+      if (term) {
+        q = q.or(`title.ilike.%${term}%,caption.ilike.%${term}%`);
+      }
+    }
+    if (typeof filters.year === "number" && Number.isFinite(filters.year)) {
+      const y = Math.round(filters.year);
+      q = q
+        .gte("created_at", `${y}-01-01`)
+        .lt("created_at", `${y + 1}-01-01`);
+    }
+
+    const order =
+      filters.sort === "oldest"
+        ? { column: "created_at", ascending: true }
+        : filters.sort === "taken"
+          ? { column: "taken_at", ascending: false }
+          : { column: "created_at", ascending: false };
+    q = q.order(order.column, {
+      ascending: order.ascending,
+      nullsFirst: false,
+    });
+    q = q.limit(filters.limit ?? 40);
+
+    const { data } = await q;
+    let posts = (data ?? []).map(rowToPost);
+    if (filters.kind) {
+      posts = posts.filter((p) =>
+        p.media.some((m) => m.kind === filters.kind),
+      );
+    }
+    return withSignedUrls(supabase, posts, { coverOnly: true });
+  },
+);
+
+function applyClientFilters(posts: Post[], f: PostFilters): Post[] {
+  let out = posts;
+  if (f.query) {
+    const q = f.query.toLowerCase();
+    out = out.filter(
+      (p) =>
+        p.title.toLowerCase().includes(q) ||
+        (p.caption ?? "").toLowerCase().includes(q),
+    );
+  }
+  if (f.kind) out = out.filter((p) => p.media.some((m) => m.kind === f.kind));
+  if (typeof f.year === "number") {
+    out = out.filter((p) => new Date(p.createdAt).getFullYear() === f.year);
+  }
+  if (f.categoryId) out = out.filter((p) => p.categoryId === f.categoryId);
+  if (f.sort === "oldest") {
+    out = [...out].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  } else if (f.sort === "taken") {
+    out = [...out].sort((a, b) =>
+      (b.takenAt ?? "").localeCompare(a.takenAt ?? ""),
+    );
+  } else {
+    out = [...out].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  return out;
+}
+
+/** Escape ILIKE special chars so a user's query can't build wildcard tricks. */
+function escapeIlike(s: string): string {
+  return s.replace(/[\\%_,]/g, (m) => "\\" + m);
+}
+
 /**
  * Editable text blocks, keyed by their stable string id.
  * Pass an explicit list of keys to fetch only what the page needs; omit for
