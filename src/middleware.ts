@@ -1,7 +1,35 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
-import { isSupabaseConfigured } from "@/lib/config";
+import { CANONICAL_HOST, isSupabaseConfigured } from "@/lib/config";
 import { buildCsp, generateNonce } from "@/lib/security";
+
+/**
+ * Enforce HTTPS + a single canonical host (guidelines §27). TLS is terminated
+ * upstream (Vercel/Cloudflare), so we read the forwarded proto/host. Returns a
+ * 308 redirect when a canonical host is configured and the request arrives on
+ * the wrong host or over plain http; otherwise null (no-op in dev/preview).
+ */
+function canonicalRedirect(request: NextRequest): NextResponse | null {
+  if (!CANONICAL_HOST) return null;
+
+  const host =
+    request.headers.get("x-forwarded-host") ??
+    request.headers.get("host") ??
+    "";
+  const proto =
+    request.headers.get("x-forwarded-proto") ??
+    request.nextUrl.protocol.replace(":", "");
+
+  const hostMismatch = host !== "" && host !== CANONICAL_HOST;
+  const insecure = proto === "http";
+  if (!hostMismatch && !insecure) return null;
+
+  const url = request.nextUrl.clone();
+  url.protocol = "https";
+  url.host = CANONICAL_HOST;
+  url.port = "";
+  return NextResponse.redirect(url, 308);
+}
 
 /**
  * Route gating (guidelines §3, §8, §16):
@@ -30,6 +58,10 @@ function isPublic(pathname: string): boolean {
 }
 
 export async function middleware(request: NextRequest) {
+  // Canonical host + HTTPS first, before any auth work.
+  const canonical = canonicalRedirect(request);
+  if (canonical) return canonical;
+
   const nonce = generateNonce();
   const csp = buildCsp(nonce, process.env.NODE_ENV === "development");
 

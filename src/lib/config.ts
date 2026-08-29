@@ -15,6 +15,17 @@ export function isSupabaseConfigured(): boolean {
 }
 
 /**
+ * Canonical production host (e.g. "archive.example.com"). When set, middleware
+ * 308-redirects any other host and any plain-http request to
+ * `https://<canonical>` — this is how apex↔www are unified and TLS is enforced
+ * once the domain + certificate are live on Vercel/Cloudflare (guidelines §27).
+ * Leave empty for local dev / preview so nothing is redirected.
+ */
+export const CANONICAL_HOST = (
+  process.env.NEXT_PUBLIC_CANONICAL_HOST ?? ""
+).trim();
+
+/**
  * Site-level defaults. These are overridden at runtime by the `site_settings`
  * row once the database is connected (see docs/DEVELOPMENT_GUIDELINES.md §19).
  */
