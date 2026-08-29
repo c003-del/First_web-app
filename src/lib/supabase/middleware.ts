@@ -21,11 +21,17 @@ export interface SessionState {
  * Refreshes the Supabase session on every request and reports auth + MFA state
  * so middleware can gate routes. In demo mode it reports "not authenticated"
  * and lets public pages render.
+ *
+ * `requestHeaders` carries the per-request CSP nonce (see security.ts) so the
+ * `NextResponse.next` responses forward it to the app render — Next.js reads
+ * the nonce from the request `Content-Security-Policy` header and stamps its
+ * own scripts with it.
  */
 export async function updateSession(
   request: NextRequest,
+  requestHeaders: Headers,
 ): Promise<SessionState> {
-  let response = NextResponse.next({ request });
+  let response = NextResponse.next({ request: { headers: requestHeaders } });
 
   if (!isSupabaseConfigured()) {
     return { response, isAuthenticated: false, aal: null };
@@ -40,7 +46,7 @@ export async function updateSession(
         cookiesToSet.forEach(({ name, value }) =>
           request.cookies.set(name, value),
         );
-        response = NextResponse.next({ request });
+        response = NextResponse.next({ request: { headers: requestHeaders } });
         cookiesToSet.forEach(({ name, value, options }) =>
           response.cookies.set(name, value, options),
         );

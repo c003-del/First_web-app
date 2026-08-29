@@ -50,11 +50,12 @@
   --radius-lg: 26px;
   --radius-xl: 34px;
 
-  /* Font stack — Pretendard first (loaded via CDN in layout head),
-     with a robust system fallback so builds never depend on a binary. */
-  --font-sans: "Pretendard Variable", Pretendard, -apple-system,
-    BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, "Helvetica Neue",
-    "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  /* Font stack — self-hosted Pretendard (next/font/local exposes
+     --font-pretendard in layout.tsx), with a robust system fallback so
+     rendering degrades gracefully if the font fails to load. */
+  --font-sans: var(--font-pretendard), "Pretendard Variable", Pretendard,
+    -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto,
+    "Helvetica Neue", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 }
 
 /* =========================================================================
