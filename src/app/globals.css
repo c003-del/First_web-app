@@ -1,0 +1,167 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================================================================
+   Design tokens — cream / warm-neutral + liquid glass
+   Single source of truth. Do not hard-code hex values in components.
+   ========================================================================= */
+:root {
+  /* Base — cream */
+  --canvas: #fcfaf5;
+  --surface-1: #f8f3ea;
+  --surface-2: #f2eadf;
+  --surface-solid: #fffdf9;
+
+  /* Ink */
+  --ink-primary: #2f2a26;
+  --ink-secondary: #665e57;
+  --ink-muted: #8b8178;
+  --ink-disabled: #aaa198;
+
+  /* Accent (low saturation) */
+  --accent-primary: #9c6f5c;
+  --accent-primary-hover: #865d4d;
+  --accent-rose: #d7b1a5;
+  --accent-sage: #aab6a2;
+  --accent-butter: #eedfae;
+
+  /* Status */
+  --success: #55735b;
+  --warning: #9a6b32;
+  --danger: #a14f4f;
+  --focus: #7657b2;
+
+  /* Borders */
+  --border-soft: rgba(75, 58, 44, 0.12);
+  --border-strong: rgba(75, 58, 44, 0.22);
+
+  /* Liquid glass */
+  --glass-fill: rgba(255, 253, 248, 0.68);
+  --glass-fill-strong: rgba(255, 253, 248, 0.86);
+  --glass-border: rgba(255, 255, 255, 0.72);
+  --glass-blur: 24px;
+
+  --shadow-card: 0 10px 32px rgba(94, 72, 53, 0.1),
+    0 2px 8px rgba(94, 72, 53, 0.06);
+
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
+  --radius-xl: 34px;
+
+  /* Font stack — Pretendard first (loaded via CDN in layout head),
+     with a robust system fallback so builds never depend on a binary. */
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system,
+    BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, "Helvetica Neue",
+    "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+}
+
+/* =========================================================================
+   Base
+   ========================================================================= */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--canvas);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Visible focus ring for keyboard users everywhere. */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* =========================================================================
+   Liquid glass — restricted to nav / frames / modals, never body text.
+   ========================================================================= */
+.glass {
+  position: relative;
+  overflow: hidden;
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+/* Specular highlight (decoration only, never intercepts pointer). */
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.55),
+    transparent 42%
+  );
+  pointer-events: none;
+}
+
+.glass-strong {
+  background: var(--glass-fill-strong);
+}
+
+/* Opaque fallback where blur is unsupported or the user reduces transparency. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: var(--surface-1);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--surface-1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Utility: text should never sit directly on busy media without a scrim. */
+.scrim {
+  background: linear-gradient(
+    to top,
+    rgba(30, 24, 20, 0.62),
+    rgba(30, 24, 20, 0) 72%
+  );
+}
