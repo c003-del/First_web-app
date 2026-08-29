@@ -123,3 +123,28 @@ export function supportNotice(support: MediaSupport): string {
 /** Default size limits (MVP). Confirm against the active plan before raising. */
 export const MAX_IMAGE_BYTES = 50 * 1024 * 1024; // 50MB
 export const MAX_VIDEO_BYTES = 500 * 1024 * 1024; // 500MB
+
+/** Canonical MIME per extension (used when magic-byte sniffing is unavailable). */
+const MIME_BY_EXT: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  avif: "image/avif",
+  gif: "image/gif",
+  bmp: "image/bmp",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  heic: "image/heic",
+  heif: "image/heif",
+  mp4: "video/mp4",
+  m4v: "video/x-m4v",
+  webm: "video/webm",
+  mov: "video/quicktime",
+  mkv: "video/x-matroska",
+  avi: "video/x-msvideo",
+};
+
+export function mimeForExt(ext: string): string | null {
+  return MIME_BY_EXT[ext] ?? null;
+}
