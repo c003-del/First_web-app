@@ -146,6 +146,129 @@ export const getPostsByCategory = cache(
   },
 );
 
+export interface PostFilters {
+  scope?: CategoryScope;
+  categoryId?: string;
+  kind?: "image" | "video";
+  query?: string;
+  year?: number;
+  sort?: "newest" | "oldest" | "taken";
+  limit?: number;
+}
+
+/**
+ * Filtered listing used by the search/filter UI. Applies criteria at query
+ * time (indexed columns) then relies on withSignedUrls to resolve display
+ * URLs. Kind ("image"/"video") is post-filtered so we only surface posts that
+ * carry media of the requested type. Not memoized by React `cache()` because
+ * callers pass fresh object literals — the identity key would never hit.
+ */
+export async function searchPosts(filters: PostFilters = {}): Promise<Post[]> {
+    const supabase = await createClient();
+    if (!supabase) {
+      const catIds = new Set(
+        filters.scope
+          ? DEMO_CATEGORIES.filter((c) => c.scope === filters.scope).map(
+              (c) => c.id,
+            )
+          : DEMO_CATEGORIES.map((c) => c.id),
+      );
+      let posts = DEMO_POSTS.filter((p) => catIds.has(p.categoryId));
+      posts = applyClientFilters(posts, filters);
+      return posts.slice(0, filters.limit ?? 40);
+    }
+
+    const selectExpr = filters.scope
+      ? `${POST_SELECT}, category:categories!inner(scope)`
+      : POST_SELECT;
+    let q = supabase.from("posts").select(selectExpr);
+
+    if (filters.scope) q = q.eq("category.scope", filters.scope);
+    if (filters.categoryId) q = q.eq("category_id", filters.categoryId);
+    if (filters.query) {
+      // Slice raw input FIRST, then escape SQL LIKE metachars, then wrap in
+      // PostgREST double-quotes so parens/commas/dots inside the term can't
+      // close the .or() group or inject sibling filters.
+      const raw = filters.query.trim().slice(0, 80);
+      if (raw) {
+        const pat = pgrstQuote(`%${escapeIlike(raw)}%`);
+        q = q.or(`title.ilike.${pat},caption.ilike.${pat}`);
+      }
+    }
+    if (typeof filters.year === "number" && Number.isFinite(filters.year)) {
+      const y = Math.round(filters.year);
+      q = q
+        .gte("created_at", `${y}-01-01`)
+        .lt("created_at", `${y + 1}-01-01`);
+    }
+
+    const order =
+      filters.sort === "oldest"
+        ? { column: "created_at", ascending: true }
+        : filters.sort === "taken"
+          ? { column: "taken_at", ascending: false }
+          : { column: "created_at", ascending: false };
+    q = q.order(order.column, {
+      ascending: order.ascending,
+      nullsFirst: false,
+    });
+    q = q.limit(filters.limit ?? 40);
+
+    const { data } = await q;
+    let posts = (data ?? []).map(rowToPost);
+    if (filters.kind) {
+      posts = posts.filter((p) =>
+        p.media.some((m) => m.kind === filters.kind),
+      );
+    }
+    return withSignedUrls(supabase, posts, { coverOnly: true });
+}
+
+function applyClientFilters(posts: Post[], f: PostFilters): Post[] {
+  let out = posts;
+  if (f.query) {
+    const q = f.query.toLowerCase();
+    out = out.filter(
+      (p) =>
+        p.title.toLowerCase().includes(q) ||
+        (p.caption ?? "").toLowerCase().includes(q),
+    );
+  }
+  if (f.kind) out = out.filter((p) => p.media.some((m) => m.kind === f.kind));
+  if (typeof f.year === "number") {
+    out = out.filter((p) => new Date(p.createdAt).getFullYear() === f.year);
+  }
+  if (f.categoryId) out = out.filter((p) => p.categoryId === f.categoryId);
+  if (f.sort === "oldest") {
+    out = [...out].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  } else if (f.sort === "taken") {
+    out = [...out].sort((a, b) =>
+      (b.takenAt ?? "").localeCompare(a.takenAt ?? ""),
+    );
+  } else {
+    out = [...out].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  return out;
+}
+
+/**
+ * Escape the SQL LIKE metachars so a user's query can't inject wildcards.
+ * The `,`, `(`, `)`, and `"` characters are NOT SQL wildcards — they are
+ * PostgREST filter delimiters and are handled separately by `pgrstQuote`.
+ */
+function escapeIlike(s: string): string {
+  return s.replace(/[\\%_]/g, (m) => "\\" + m);
+}
+
+/**
+ * Wrap a value for a PostgREST filter (e.g. inside `.or(title.ilike.<here>)`)
+ * so `(`, `)`, `,`, `.`, and `:` inside the value do not terminate the
+ * expression. Backslash and double-quote inside the value are escaped.
+ */
+function pgrstQuote(s: string): string {
+  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 /**
  * Editable text blocks, keyed by their stable string id.
  * Pass an explicit list of keys to fetch only what the page needs; omit for
@@ -262,14 +385,12 @@ async function withSignedUrls(
     // out signed originals that never get displayed.
     const media = coverOnly ? p.media.slice(0, 1) : p.media;
     for (const m of media) {
-      if (coverOnly) {
-        if (m.thumbPath) paths.push(m.thumbPath);
-        else if (m.storagePath) paths.push(m.storagePath);
-      } else {
-        if (m.storagePath) paths.push(m.storagePath);
-        if (m.thumbPath) paths.push(m.thumbPath);
-        if (m.posterPath) paths.push(m.posterPath);
-      }
+      // In coverOnly mode we still sign storagePath + posterPath alongside
+      // the thumbnail so the click-to-open lightbox has a working full-res URL
+      // (and a poster for videos) without a second round-trip.
+      if (m.storagePath) paths.push(m.storagePath);
+      if (m.thumbPath) paths.push(m.thumbPath);
+      if (m.posterPath) paths.push(m.posterPath);
     }
   }
   const map = await signPaths(supabase, paths);

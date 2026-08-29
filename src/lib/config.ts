@@ -37,6 +37,7 @@ export const RESERVED_SLUGS = new Set([
   "api",
   "auth",
   "recovery",
+  "search",
   "_next",
   "favicon.ico",
 ]);
