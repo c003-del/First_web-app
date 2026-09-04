@@ -24,6 +24,19 @@ Vercel + 가비아 도메인 기준. TLS 인증서는 **Vercel 또는 Cloudflare
 
 ## 2. Vercel 프로젝트 + 환경변수
 
+### 2-0. 이 저장소의 실제 연결 정보
+
+| 항목 | 값 |
+| --- | --- |
+| Vercel 팀 | `HPeng` (slug `hp-eng`, Hobby 플랜) |
+| Vercel 프로젝트 | `first-web-app` |
+| Git 저장소 | `c003-del/First_web-app` (Production Branch: `main`) |
+| Supabase 프로젝트 ref | `sddkavaejlificbjmmql` (리전 `ap-northeast-2` / 서울) |
+| Supabase Project URL | `https://sddkavaejlificbjmmql.supabase.co` |
+
+> Supabase가 서울 리전이므로 Vercel **Settings → Functions → Region**도
+> `Seoul (icn1)`으로 맞추면 DB 왕복 지연이 줄어듭니다.
+
 1. Vercel에 이 저장소를 임포트합니다(프레임워크 자동 감지: Next.js).
 2. **Settings → Environment Variables**에 등록(Production/Preview 구분):
 
@@ -36,6 +49,17 @@ Vercel + 가비아 도메인 기준. TLS 인증서는 **Vercel 또는 Cloudflare
    | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service_role (서버 전용) |
 
    > `SUPABASE_SERVICE_ROLE_KEY`에는 `NEXT_PUBLIC_` 접두사를 절대 붙이지 마세요.
+
+   값을 가져오는 위치:
+   - `NEXT_PUBLIC_SUPABASE_URL` → 위 표의 Project URL 그대로.
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` → Supabase **Project Settings → API Keys**의
+     `anon` (또는 `publishable`) 키. 브라우저에 노출되는 공개 키입니다.
+   - `SUPABASE_SERVICE_ROLE_KEY` → 같은 화면의 `service_role` 키. **서버 전용**이며
+     저장소·문서·클라이언트 코드에 절대 넣지 않습니다. Vercel 환경변수에만 등록하세요.
+
+   > 환경변수 없이도 빌드는 성공합니다(`src/lib/config.ts`의 데모 모드). 즉 위 3개를
+   > 등록하기 전 배포는 로그인·미디어가 동작하지 않는 껍데기 상태이므로, 첫 배포 후
+   > 반드시 환경변수를 등록하고 **재배포(Redeploy)** 해야 합니다.
 3. 첫 배포를 실행합니다(임시 `*.vercel.app` 도메인으로 동작 확인).
 
 ---
